@@ -1,0 +1,155 @@
+BeeGFS源码分析2-客户端概要分析: https://www.chinacion.cn/article/6774.html
+
+编译:
+make -C admon/build admon_gui
+
+问题: Error :Arc dependent binaries in noarch package (CentOS 6.5)
+添加如下定义到spec中
+%define _binaries_in_noarch_packages_terminate_build   0
+
+build:
+clear;make package-rpm PACKAGE_DIR=packages BEEGFS_VERSION=7.1.5-local1
+
+
+
+
+__IBVSocket_waitForRecvCompletionEvent
+    ibv_poll_cq
+
+
+IBVSocket_checkConnection
+
+__IBVSocket_postWrite
+    ibv_post_send
+
+
+gds:
+cuFileWrite
+
+nvfs-dma.h
+
+
+
+
+
+__IBVSocket_postRead
+
+
+config:
+beegfs-mounts.conf
+
+
+
+client内核模块:
+module_init(init_fhgfs_client)
+    ...
+    FhgfsOps_registerFilesystem -> 注册文件系统
+
+
+
+
+static struct file_system_type fhgfs_fs_type =
+{
+   .name       = BEEGFS_MODULE_NAME_STR,
+   .owner      = THIS_MODULE,
+   .kill_sb    = FhgfsOps_killSB,
+   //.fs_flags   = FS_BINARY_MOUNTDATA, // not required currently
+
+#ifdef KERNEL_HAS_GET_SB_NODEV
+   .get_sb     = FhgfsOps_getSB,
+#else
+   .mount      = FhgfsOps_mount, // basically the same thing as get_sb before  挂载文件系统
+#endif
+};
+
+int FhgfsOps_fillSuper(struct super_block* sb, void* rawMountOptions, int silent) -> 填充文件系统超级块
+    ...
+    rootInode = __FhgfsOps_newInode(sb, &kstat, 0, &entryInfo, &iSizeHints)
+
+
+文件系统接口: client_module/source/filesystem/FhgfsOpsFile.h
+write io path:
+FhgfsOps_write
+    write_common
+        FhgfsOpsHelper_writeCached
+       _FhgfsOpsHelper_writeCacheFlushed
+           FhgfsOpsHelper_writefileEx
+               # appendfile
+               FhgfsOpsHelper_appendfile
+                       FhgfsOpsHelper_appendfileVecOffset
+                             FhgfsOpsRemoting_writefile
+                                  FhgfsOpsRemoting_writefileVec
+               # writefile
+               FhgfsOpsRemoting_writefile
+                       FhgfsOpsRemoting_writefileVec
+
+
+ssize_t __FhgfsOps_directIO_common(int rw, struct kiocb *iocb, struct iov_iter *iter, loff_t pos)
+    remotingRes = FhgfsOpsRemoting_writefileVec(&bgfsIter, pos, &ioInfo, false) -> 写
+        FhgfsOpsCommKit_writefileV2bCommunicate
+            __commkit_senddata_generic
+                __commkit_prepare_io
+                sendRes = context->ops->sendData(context, info) -> static int __commkit_writefile_sendData
+                    sendRes = info->socket->ops->sendto(info->socket, data, MSG_DONTWAIT, NULL) -> ssize_t RDMASocketImpl::sendto(const void *buf, size_t len, int flags, const struct sockaddr *to, socklen_t tolen)
+                        IBVSocket_send(ibvsock, (const char*)buf, len, flags | MSG_NOSIGNAL)
+                            __IBVSocket_flowControlOnSendWait
+                            postRes = __IBVSocket_postSend(_this, currentBufIndex, currentPostLen)
+                                wr.opcode     = IBV_WR_SEND;
+                                wr.send_flags = IBV_SEND_SIGNALED;
+                                postRes = ibv_post_send(commContext->qp, &wr, &bad_wr)
+    remotingRes = FhgfsOpsRemoting_readfileVec(&bgfsIter, iov_iter_count(&bgfsIter), pos, &ioInfo, fhgfsInode) -> 读
+
+
+
+
+
+文件操作:
+struct file_operations fhgfs_file_buffered_ops =
+{
+   .open             = FhgfsOps_open,
+   .release          = FhgfsOps_release,
+   .fsync            = FhgfsOps_fsync,
+   .flush            = FhgfsOps_flush,
+   .llseek           = FhgfsOps_llseek,
+   .flock            = FhgfsOps_flock,
+   .lock             = FhgfsOps_lock,
+   .mmap             = FhgfsOps_mmap,
+   .unlocked_ioctl   = FhgfsOpsIoctl_ioctl,
+#ifdef CONFIG_COMPAT
+   .compat_ioctl     = FhgfsOpsIoctl_compatIoctl,
+#endif // CONFIG_COMPAT
+
+#ifdef KERNEL_HAS_ITER_FILE_SPLICE_WRITE
+   .splice_read  = generic_file_splice_read,
+   .splice_write = iter_file_splice_write,
+#else
+   .splice_read  = generic_file_splice_read,
+   .splice_write = generic_file_splice_write,
+#endif // LINUX_VERSION_CODE
+
+#if defined(KERNEL_HAS_WRITE_ITER)
+   .read_iter           = FhgfsOps_buffered_read_iter,
+   .write_iter          = FhgfsOps_buffered_write_iter, // replacement for aio_write
+#else
+   .read                = FhgfsOps_read,
+   .write               = FhgfsOps_write,  // 写IO
+   .aio_read            = FhgfsOps_buffered_aio_read,
+   .aio_write           = FhgfsOps_buffered_aio_write,
+#endif // LINUX_VERSION_CODE
+
+#ifdef KERNEL_HAS_GENERIC_FILE_SENDFILE
+   .sendfile   = generic_file_sendfile, // removed in 2.6.23 (now handled via splice)
+#endif // LINUX_VERSION_CODE
+};
+
+
+数据发送接口: common/source/common/net/sock/StandardSocket.h
+rdma write:
+virtual ssize_t write(const void *buf, size_t len, unsigned lkey, const uint64_t rbuf, unsigned rkey) -> ssize_t RDMASocketImpl::write(const void *buf, size_t len, unsigned lkey, const uint64_t rbuf, unsigned rkey)
+    IBVSocket_write(this->ibvsock, (char *)buf, len, lkey, rbuf, rkey)
+    ssize_t RDMASocketImpl::write
+    IBVSocket_write
+    __IBVSocket_postWrite
+        wr.opcode     = IBV_WR_RDMA_WRITE;
+        wr.send_flags = IBV_SEND_SIGNALED;
+        postRes = ibv_post_send(commContext->qp, &wr, &bad_wr)
