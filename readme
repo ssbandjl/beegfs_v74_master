@@ -145,6 +145,12 @@ struct file_operations fhgfs_file_buffered_ops =
 
 数据发送接口: common/source/common/net/sock/StandardSocket.h
 rdma write:
+...
+workLoop
+...
+bool ReadLocalFileMsgExBase<Msg, ReadState>::processIncoming
+incrementalReadStatefulAndSendV2
+inline ssize_t readStateSendData(Socket* sock, ReadState& rs, char* buf, bool isFinal) -> 通过RDMA将数据写到远程内存
 virtual ssize_t write(const void *buf, size_t len, unsigned lkey, const uint64_t rbuf, unsigned rkey) -> ssize_t RDMASocketImpl::write(const void *buf, size_t len, unsigned lkey, const uint64_t rbuf, unsigned rkey)
     IBVSocket_write(this->ibvsock, (char *)buf, len, lkey, rbuf, rkey)
     ssize_t RDMASocketImpl::write
