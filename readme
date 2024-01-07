@@ -1,0 +1,65 @@
+git: https://git.beegfs.io/pub/v7.git
+git@github.com:ssbandjl/beegfs_v74_master.git
+
+
+
+version:
+commit eb91e8a177696adcd8eedfb616f9acdbb79dde6e (HEAD -> master, tag: 7.4.2, origin/master, origin/HEAD)
+Author: Philipp Falk <philipp.falk@thinkparq.com>
+Date:   Fri Nov 10 11:21:43 2023 +0100
+
+    update to release 7.4.2
+
+
+
+install devtool
+dnf list gcc-toolset-*-toolchain
+dnf install gcc-toolset-9
+scl enable gcc-toolset-9 bash
+
+
+build:
+[root@node14 v7]# history|tail -n 20
+16  make package-rpm PACKAGE_DIR=packages
+17  ll
+18  cd v7/
+19  ll
+20  make package-rpm PACKAGE_DIR=packages
+21  yum install libnl3-devel
+24  yum install libuuid-devel libibverbs-devel librdmacm-devel libattr-devel redhat-rpm-config   rpm-build xfsprogs-devel zlib-devel ant gcc-c++ gcc   redhat-lsb-core java-devel unzip libcurl-devel elfutils-libelf-devel kernel-devel -y
+25  make package-rpm PACKAGE_DIR=packages
+26  ll
+27  rm -rf packages/
+28  make package-rpm PACKAGE_DIR=packages
+29  rm -rf packages/
+30  ll
+31  make package-deb PACKAGE_DIR=packages DEBUILD_OPTS="-j64"
+32  rm -rf packages;make package-rpm PACKAGE_DIR=packages DEBUILD_OPTS="-j64"
+33  yum install libblkid-devel
+
+
+install:
+cd packages/RPMS/x86_64/
+ll
+rpm -ivh beegfs-mgmtd-7.4.2-el8.x86_64.rpm 
+yum install ./beegfs-mgmtd-7.4.2-el8.x86_64.rpm 
+cd ..
+ll
+cd noarch/
+ll
+rpm -ivh beegfs-common-7.4.2-el8.noarch.rpm 
+cd ../x86_64/
+ll
+rpm -ivh beegfs-mgmtd-7.4.2-el8.x86_64.rpm
+rpm -ivh beegfs-meta-7.4.2-el8.x86_64.rpm 
+rpm -ivh beegfs-storage-7.4.2-el8.x86_64.rpm 
+rpm -ivh beegfs-utils-7.4.2-el8.x86_64.rpm beegfs-helperd-7.4.2-el8.x86_64.rpm
+cd ..
+cd noarch/
+ll
+rpm -ivh beegfs-client-7.4.2-el8.noarch.rpm 
+rpm -ivh beegfs-mon-grafana-7.4.2-el8.noarch.rpm 
+vi /etc/beegfs/beegfs-mgmtd.conf 
+history |tail -n 30
+
+
