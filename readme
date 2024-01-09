@@ -1,6 +1,11 @@
 upstream: https://git.beegfs.io/pub/v7.git
 xb7.4.2: git@github.com:ssbandjl/beegfs_v74_master.git
 
+doc:
+源码编译: https://git.beegfs.io/pub/v7/-/tree/7.4.2?ref_type=tags
+从源码编译: https://doc.beegfs.io/latest/advanced_topics/building_from_sources.html
+7.4.2 doc: https://doc.beegfs.io/latest/index.html
+
 
 version:
 commit eb91e8a177696adcd8eedfb616f9acdbb79dde6e (HEAD -> master, tag: 7.4.2, origin/master, origin/HEAD)
@@ -209,3 +214,73 @@ virtual ssize_t write(const void *buf, size_t len, unsigned lkey, const uint64_t
         wr.opcode     = IBV_WR_RDMA_WRITE;
         wr.send_flags = IBV_SEND_SIGNALED;
         postRes = ibv_post_send(commContext->qp, &wr, &bad_wr)
+
+
+创建文件:
+FhgfsOps_createIntent
+  =>FhgfsInode_entryInfoReadLock
+  =>FhgfsInode_initIsizeHints
+  =>FhgfsOpsRemoting_lookupIntent
+       ==>LookupIntentMsg_initFromEntryInfo
+           ===>LookupIntentMsg_init # NETMSGTYPE_LookupIntent
+       ==>LookupIntentInfoOut_initFromRespMsg
+  =>FhgfsInode_entryInfoReadUnlock
+ 
+### Message: NETMSGTYPE_LookupIntent
+LookupIntentMsgEx::executeLocally
+  =>LookupIntentMsgEx::create
+    ==>MsgHelperMkFile::mkFile
+       ===>DirInode::createFileStripePattern
+          ====>DirInode::createFileStripePatternUnlocked
+             =====>NodeCapacityPools::chooseStorageTargets
+                            # CapacityPooll [ NORMAL ]
+                            # CapacityPooll [ LOW ]
+                            # CapacityPooll [ EMERGENCY ]
+     ==>MetaStore::mkNewMetaFile
+ 
+MkFileMsgEx::executeLocally
+   =>MkFileMsgEx::executePrimary
+      ==>App->getMetaStore->referenceDir
+      ==>MsgHelperMkFile::mkFile
+           DirInode::createFileStripePattern
+                  DirInode::createFileStripePatternUnlocked
+                        TargetCapacityPools::chooseStorageTargets
+           MetaStore::mkNewMetaFile
+                  StorageTk::generateFileID
+                  DirEntry->setFileInodeData
+                  DirInode::makeDirEntryUnlocked
+                        DirEntryStore::makeEntry
+                            DirEntryStore::makeEntryUnlocked
+                                DirEntry::storeInitialDirEntry
+                                     DirEntry::storeInitialDirEntryName
+                                        link,  unlink
+                                MetaSyncCandidateFile->addModification
+      ==>App->getMetaStore->releaseDir  
+       
+   =>MkFileMsgEx::executeSecondary
+      ==>App->getMetaStore->referenceDir
+      ==>MsgHelperMkFile::mkFile
+      ==>App->getMetaStore->releaseDir 
+
+
+BeeGFS创建目录
+FhgfsOps_mkdir
+   =>FhgfsInode_entryInfoReadLock
+   =>FFhgfsOpsRemoting_mkdir
+      ==>FMkDirMsg_initFromEntryInfo
+         ===>FMkDirMsg_init   # NETMSGTYPE_MkDir
+      ==>FRequestResponseArgs_prepare
+      ==>FMessagingTk_requestResponseNodeRetryAutoIntr
+   =>FFhgfsInode_entryInfoReadUnlock
+ 
+###  MessageType: NETMSGTYPE_MkDir 
+MkDirMsgEx::executeLocally
+   =>MkDirMsgEx::mkDirPrimary
+      ==>NodeCapacityPools::chooseStorageTargets
+      ==>MkDirMsgEx::mkRemoteDirInode
+      ==>MkDirMsgEx::mkDirDentry
+   =>MkDirMsgEx::mkDirSecondary
+
+
+管理面:
+beegfs-ctl
